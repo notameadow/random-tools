@@ -2,65 +2,86 @@
 
 =head1 saleae-dump.pl
 
-This script will take a .csv from Saleae and convert it to something useful -
-like a stream of hex values. Right now it recognises the data format by looking 
-at the first line of the file.
+saleae-dump.pl - process data from Saleae csv dumps
+
+=head1 SYNOPSIS
+
+./saleae-dump.pl [options] [file]
+
+    Options (UART):
+        --linebreak|lb|l=string
+        --breakline|bl|b=string
+
+=head1 OPTIONS
+
+=over 2
+
+=item B<--linebreak|lb|l>
+
+Insert "\n" after every occurence of the string.
+
+=item B<--breakline|lb|l>
+
+Insert "\n" after every occurence of the string.
+
+=back
+
+=head1 DESCRIPTION
+
+This script will take a .csv from Saleae and convert it to something 
+useful - like a stream of hex values. Right now it recognises the data 
+format by looking at the first line of the file.
 The data is printed to stdout in hex as a string of [0-9A-F]{2}.
 
 =head2 SPI
 
 The format:
+ Time [s],Packet ID,MOSI,MISO
+ 0.000000000000000,0,0x9F,0x00
+ 0.000001660000000,0,0xFF,0x1F
+ 0.000003360000000,0,0xFF,0x06
 
-Time [s],Packet ID,MOSI,MISO
-0.000000000000000,0,0x9F,0x00
-0.000001660000000,0,0xFF,0x1F
-0.000003360000000,0,0xFF,0x06
+The Packet ID field is important as it separates SPI transactions. The 
+protocol is 'speak when spoken to' by the master, and the transactions are 
+separated by a state of /CS line (I haven't checked if Saleae does it 
+properly). Using Packet ID fields we are able to display command-response 
+pairs.
 
-The Packet ID field is important as it separates SPI transactions. The protocol
-is 'speak when spoken to' by the master, and the transactions are separated by
-a state of /CS line (I haven't checked if Saleae does it properly). Using 
-Packet ID fields we are able to display command-response pairs.
+There is no way to determine which byte is the last byte of a command (on 
+MOSI, master out slave in) line, the idle state is high so Saleae will 
+interpret it as 0xFF. The same goes for the MISO (master in slave out) - 
+there is no clear distinction as to where the response starts. We also know
+that only one line is active at a time - and it does happen, depending on 
+the wiring, that signals cross over between channels (that is, clock pulses 
+can be seen on an idle line) and be interpreted by Saleae as valid bits. 
 
-There is no way to determine which byte is the last byte of a command (on MOSI, 
-master out slave in) line, the idle state is high so Saleae will interpret it 
-as 0xFF. The same goes for the MISO (master in slave out) - there is no clear 
-distinction as to where the response starts. We also know that only one line is 
-active at a time - and it does happen, depending on the wiring, that signals 
-cross over between channels (that is, clock pulses can be seen on an idle 
-line) and be interpreted by Saleae as valid bits. 
-
-The active state (that is, commands being either read by slave or sent by it) is
-determined by the clock line (bits are being read on the line transition, 
-usually on the leading edge) so Saleae is able to determine when 0xFF is a 
-transmission or an idle (high) state.
+The active state (that is, commands being either read by slave or sent by 
+it) is determined by the clock line (bits are being read on the line 
+transition, usually on the leading edge) so Saleae is able to determine 
+when 0xFF is a transmission or an idle (high) state.
 
 This script will dump the data in two ways:
  - grouped in command-response sets,
  - whole stream of data from MISO
 
-Since idle bytes on both lines are 0xFF and can pick up noise from other lines,
-as mentioned above, we will:
- - ignore MISO from the start of a packet until 0xFF - this is a first attempt
-   assumption and is most likely wrong,
- - ignore MOSI after the first 0xFF
+Since idle bytes on both lines are 0xFF and can pick up noise from other 
+lines, as mentioned above, we will:
+ - ignore MISO from the start of a packet until 0xFF - this is a first 
+   attempt assumption and is most likely wrong;
+ - ignore MOSI after the first 0xFF.
 
  This applies to both modes (we want MISO stream to be free of noise).
 
 =head2 UART
 
 The format:
-Time [s],Value,Parity Error,Framing Error
-6.880548088000000,0x16,,
-6.881669188000000,0x73,,
-6.882801980000000,0x39,,
+ Time [s],Value,Parity Error,Framing Error
+ 6.880548088000000,0x16,,
+ 6.881669188000000,0x73,,
+ 6.882801980000000,0x39,,
 
-The format is simple enough, so it's just a matter of merging the bytes into
-one string. We rely on Saleae to do its job.
-
-=head3 UART options
-
---linebreak|lb, -l: insert newline *before* this string
---breakline|bl, -b: insert newline *after* this string
+The format is simple enough, so it's just a matter of merging the bytes 
+into one string. We rely on Saleae to do its job.
 
 =cut
 
@@ -68,15 +89,19 @@ use strict;
 use warnings;
 use v5.014;
 use Getopt::Long;
+use Pod::Usage;
 
 $| = 1;
 my $bl = 0;
 my $lb = 0;
+my $help = 0;
 
 GetOptions(
-    'linebreak|lb|l=s' => \$lb,
-    'breakline|bl|b=s' => \$bl,
-) or die "Incorrect options (-l)\n";
+    'linebreak|lb=s' => \$lb,
+    'breakline|bl=s' => \$bl,
+    'help' => \$help,
+) or pod2usage(2);
+pod2usage(1) if $help;
 
 my $header = <>;
 spi() if ($header =~ /MOSI/);
@@ -93,12 +118,12 @@ sub uart {
         $output .= $value;
     }
 
-    if ($lb) {
-        $output =~ s/$lb/\n$lb/gm;
+    if ($bl) {
+        $output =~ s/$bl/\n$bl/gm;
     }
 
-    if ($bl) {
-        $output =~ s/$bl/$bl\n/gm;
+    if ($lb) {
+        $output =~ s/$lb/$lb\n/gm;
     }
 
     say $output;
