@@ -31,6 +31,8 @@ Insert "\n" after every occurence of the string.
 This script will take a .csv from Saleae and convert it to something 
 useful - like a stream of hex values. Right now it recognises the data 
 format by looking at the first line of the file.
+B<The source CSV needs to be in HEX format> selected in the Analyzer 
+settings in Saleae Logic software.
 The data is printed to stdout in hex as a string of [0-9A-F]{2}.
 
 =head2 SPI
