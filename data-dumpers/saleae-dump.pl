@@ -85,6 +85,22 @@ The format:
 The format is simple enough, so it's just a matter of merging the bytes 
 into one string. We rely on Saleae to do its job.
 
+=head2 i2c
+
+The format:
+ Time [s],Packet ID,Address,Data,Read/Write,ACK/NAK
+ 0.016978560000000,0,0x39,0xAE,Write,ACK
+ 0.017197840000000,1,0x39,0x20,Read,NAK
+ 0.017439200000000,2,0x39,0xFC,Write,ACK
+
+The script will group bytes written and read in one line per transaction 
+type, dropping 0x:
+
+ Write to  0x39: AE
+ Read from 0x39: 20
+ Write to  0x39: FC
+ Read from 0x39: 1C 0B 13 1C 1C 0B 0E 1E 1B 09 11 1E
+
 =cut
 
 use strict;
@@ -108,8 +124,42 @@ pod2usage(1) if $help;
 my $header = <>;
 spi() if ($header =~ /MOSI/);
 uart() if ($header =~ /Parity Error,Framing Error/);
+i2c() if ($header =~ /Address,Data,Read/);
 
 die "Header format not recognised: $header\n";
+
+sub i2c {
+    my ($transactions, @packets, $packets);
+
+    while(<>) {
+        chomp;
+        my ($ts, $packetId, $address, $data, $read, $ack) = split(/,/);
+        $address =~ s/0x(..)/$1/;
+        $data =~ s/0x(..)/$1/;
+        $read = $read =~ /Read/ ? 'Read from 0x' : 'Write to  0x';
+
+        # This is a Perl hack to make an unique list
+        $packets->{$packetId} = 1;
+
+        push(@{$transactions->{$packetId}}, { 
+            address => $address, data => $data, read => $read, ack => $ack
+        });
+    }
+    
+    @packets = sort ({$a <=> $b} keys(%$packets));
+
+    for my $packetId (@packets) {
+        for my $transaction (@{$transactions->{$packetId}}) {
+            state $lastType;
+            if ($lastType ne $transaction->{'read'}) {
+                print "\n$transaction->{'read'}$transaction->{'address'}: ";
+                $lastType = $transaction->{'read'};
+            } 
+            
+            print "$transaction->{'data'} ";
+        }
+    }
+}
 
 sub uart {
     my $output;
